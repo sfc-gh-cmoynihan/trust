@@ -4,18 +4,70 @@
 
 A live demo showcasing Snowflake Trust Center across four security domains: CIS Benchmarks, PII classification and masking, AI Security, and Threat Intelligence.
 
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph trustCenter ["Trust Center — Single Pane of Glass"]
+        direction LR
+        CIS["CIS Benchmarks\n45 scanners\nCompliance checks"]
+        SE["Security Essentials\n8 scanners\nFoundational hygiene"]
+        AI["AI Security\n4 scanners\nAgent guardrails"]
+        TI["Threat Intelligence\n22 scanners\nReal-time detections"]
+    end
+
+    subgraph platform ["Platform Security"]
+        AUTH["Authentication\nSSO / MFA"]
+        RBAC["Authorization\nRBAC / ABAC"]
+        NET["Network Security\nNetwork Policies"]
+    end
+
+    subgraph data ["Data Security"]
+        CLASS["Classification\nAuto-detect PII"]
+        MASK["Masking Policies\nColumn-level protection"]
+        ENCRYPT["Encryption\nData integrity"]
+    end
+
+    subgraph agent ["Agent Security"]
+        IDENTITY["Agent Identity\nScope permissions"]
+        GUARD["AI Guardrails\nPrompt injection protection"]
+        POSTURE["AI Posture\nSecurity monitoring"]
+    end
+
+    trustCenter -->|scans| platform
+    trustCenter -->|scans| data
+    trustCenter -->|scans| agent
+
+    CIS -.->|"CIS 3.1, 1.4"| NET
+    CIS -.->|"CIS 4.10"| MASK
+    AI -.->|"Guardrail check"| GUARD
+    AI -.->|"Sensitive data access"| IDENTITY
+    TI -.->|"Login protection"| AUTH
+```
+
 ## Files
 
 Run in this order:
 
 | # | File | Purpose |
 |---|------|---------|
-| 1 | [demo_setup.sql](demo_setup.sql) | **Pre-flight.** Run before the talk to set the account to the correct starting state. |
-| 2 | [demo_walkthrough.md](demo_walkthrough.md) | **Reference guide.** Step-by-step Snowsight UI navigation with talk track. |
-| 3 | [demo_trust_center.sql](demo_trust_center.sql) | **Main demo.** Open in a Snowsight worksheet and step through the 4 acts on stage. |
-| 4 | [demo_teardown.sql](demo_teardown.sql) | **Cleanup.** Run after the talk to reset state so the demo is repeatable. |
+| 1 | [1_demo_setup.sql](1_demo_setup.sql) | **Pre-flight.** Run before the talk to set the account to the correct starting state. |
+| 2 | [2_demo_walkthrough.md](2_demo_walkthrough.md) | **Reference guide.** Step-by-step Snowsight UI navigation with talk track. |
+| 3 | [3_demo_trust_center.sql](3_demo_trust_center.sql) | **Main demo.** Open in a Snowsight worksheet and step through the 4 acts on stage. |
+| 4 | [4_demo_teardown.sql](4_demo_teardown.sql) | **Cleanup.** Run after the talk to reset state so the demo is repeatable. |
 
-## Demo Structure (~8 minutes)
+## Demo Flow (~8 minutes)
+
+```mermaid
+flowchart LR
+    SETUP["1_demo_setup.sql\nPre-flight"] --> ACT1
+    subgraph demo ["3_demo_trust_center.sql"]
+        ACT1["Act 1\nTrust Center\nDashboard"] --> ACT2["Act 2\nPII Classification\n& Masking"]
+        ACT2 --> ACT3["Act 3\nEnable AI\nSecurity"]
+        ACT3 --> ACT4["Act 4\nEnable Threat\nIntelligence"]
+    end
+    ACT4 --> TEARDOWN["4_demo_teardown.sql\nReset"]
+```
 
 | Act | Topic | What Happens |
 |-----|-------|--------------|
