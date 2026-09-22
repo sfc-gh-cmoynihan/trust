@@ -55,6 +55,8 @@ Run in this order:
 | 2 | [2_demo_walkthrough.md](2_demo_walkthrough.md) | **Reference guide.** Step-by-step Snowsight UI navigation with talk track. |
 | 3 | [3_demo_trust_center.sql](3_demo_trust_center.sql) | **Main demo.** Open in a Snowsight worksheet and step through the 4 acts on stage. |
 | 4 | [4_demo_teardown.sql](4_demo_teardown.sql) | **Cleanup.** Run after the talk to reset state so the demo is repeatable. |
+| 5 | [5_demo_violations_setup.sql](5_demo_violations_setup.sql) | **Violations.** Creates demo users, agents, disables guardrails to populate all Trust Center tabs. |
+| 6 | [6_demo_violations_teardown.sql](6_demo_violations_teardown.sql) | **Violations cleanup.** Drops demo objects, re-enables guardrails, resets state. |
 
 ## Demo Flow (~8 minutes)
 
