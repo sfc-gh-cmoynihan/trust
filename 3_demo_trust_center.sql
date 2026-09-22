@@ -197,6 +197,38 @@ LIMIT 1;
 
 
 -- ============================================================================
+-- DATA SECURITY TAB — Show classification results
+-- ============================================================================
+-- TALK TRACK: "Let me show you the Data Security tab — this is where
+-- classification results come together."
+--
+-- >>> SWITCH TO SNOWSIGHT: Trust Center > Data Security tab <<<
+-- >>> Show: Dashboard with classified objects, unmasked columns,
+--          Objects by classification categories chart,
+--          Objects by compliance and regulation standards chart <<<
+--
+-- TALK TRACK: "Snowflake has automatically classified our databases.
+-- We can see exactly which objects contain sensitive data, what categories
+-- were detected — names, emails, phone numbers — and which columns
+-- still need masking policies. This is continuous — new tables get
+-- classified automatically as they're created."
+
+-- Show classified objects with their tags
+SELECT *
+FROM TABLE(
+    DEMO_DB.INFORMATION_SCHEMA.TAG_REFERENCES_ALL_COLUMNS(
+        'DEMO_DB.PUBLIC.HR_DATA', 'TABLE'
+    )
+)
+WHERE TAG_NAME IN ('SEMANTIC_CATEGORY', 'PRIVACY_CATEGORY')
+ORDER BY COLUMN_NAME;
+
+-- TALK TRACK: "Every column automatically tagged — EMAIL, NAME, AGE —
+-- with both semantic categories and privacy categories. And this feeds
+-- directly into the AI Security scanners we're about to enable."
+
+
+-- ============================================================================
 -- ACT 3: AGENT SECURITY — ENABLE LIVE
 -- ============================================================================
 -- TALK TRACK: "Now let's turn on agent security. This is new — purpose-built
@@ -236,7 +268,7 @@ ORDER BY NAME;
 --  1. Are Cortex AI Guardrails enabled? — Prompt injection protection
 --  2. Are agents accessing sensitive classified data?
 --  3. Are Cortex Search Services owned by privileged roles?
---  4. Are Cortex Code PATs scoped with network policies?
+--  4. Are Cortex Code PATs scoped with role restrictions and network policies?
 --
 -- This is what agent security looks like — built into the platform."
 
@@ -286,13 +318,25 @@ FROM snowflake.trust_center.scanners
 WHERE SCANNER_PACKAGE_ID = 'THREAT_INTELLIGENCE'
 ORDER BY NAME;
 
--- TALK TRACK: "Login Protection — detects logins from known malicious IPs.
--- Dormant User Login — flags when inactive accounts suddenly wake up.
--- Authentication Failures — catches brute force attempts.
--- Sensitive Parameter Protection — alerts when someone disables
--- security parameters for data movement.
+-- TALK TRACK: "18 scanners — let me highlight the categories.
 --
--- This is the shift from violations to detections that we talked about."
+-- Identity & Auth: Login Protection flags malicious IPs. Dormant User Login
+-- catches inactive accounts waking up. High Auth Failures spots brute force.
+-- MFA Readiness shows who still relies on password-only sign-in.
+-- Service User Passwordless Readiness flags legacy service accounts.
+-- Password Sign-In Without MFA catches users bypassing MFA.
+--
+-- Privilege Monitoring: MANAGE GRANTS tracks who can grant access.
+-- Admin Privilege Grants catches new admin escalations.
+--
+-- Anomaly Detection: Unusual application sessions, long-running queries,
+-- high job failure rates — behavioural signals that something is off.
+--
+-- Data & Config Protection: Sensitive Parameter Protection, Share Exposure,
+-- SCIM Token Creation, Security Integration and Network Policy changes.
+--
+-- This is the shift from violations to detections — not just what's
+-- misconfigured, but what's actually happening in your account."
 
 -- ============================================================================
 -- Run Threat Intelligence scanners

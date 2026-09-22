@@ -119,7 +119,38 @@
 
 ### Transition
 
-- **Say:** "So we've got platform security and data protection. Now let's turn on agent security."
+- **Say:** "So we've got platform security and data protection. Now let me show you the Data Security tab."
+
+---
+
+## Data Security Tab (~1 min, taken from Act 2 time)
+
+### Step 8b: Data Security Dashboard
+
+1. **Navigate** to Trust Center > **Data Security** tab > **Dashboard**
+2. **Point out on screen:**
+   - Objects that need review count
+   - Objects with unmasked sensitive columns count
+   - Objects by top classification categories chart (NAME, EMAIL, AGE, PHONE, etc.)
+   - Objects by top compliance and regulation standards chart
+3. **Talk track:** "Snowflake automatically classified our databases using a classification profile. We can see exactly which objects contain sensitive data, what categories were detected, and which columns still need masking. This is continuous — new tables get classified automatically."
+
+### Step 8c: Show Classified Tags (SQL)
+
+1. **Switch to SQL worksheet**, run:
+   ```sql
+   SELECT * FROM TABLE(
+       DEMO_DB.INFORMATION_SCHEMA.TAG_REFERENCES_ALL_COLUMNS(
+           'DEMO_DB.PUBLIC.HR_DATA', 'TABLE'))
+   WHERE TAG_NAME IN ('SEMANTIC_CATEGORY', 'PRIVACY_CATEGORY')
+   ORDER BY COLUMN_NAME;
+   ```
+2. **Point out:** Every column tagged with APPLY_METHOD = CLASSIFIED (automatic, not manual)
+3. **Talk track:** "Every column automatically tagged — EMAIL, NAME, AGE — with both semantic and privacy categories. And this feeds directly into the AI Security scanners we're about to enable."
+
+### Transition
+
+- **Say:** "Platform security, data protection, data classification — now let's turn on agent security."
 
 ---
 
@@ -152,7 +183,7 @@
    - Cortex AI Guardrails — prompt injection protection
    - Sensitive Data Accessed by Agent — data exfiltration risk
    - Cortex Search Service Privileged Roles — least privilege
-   - Cortex Code PAT Usage — access control
+   - Cortex Code PAT Usage — role restriction and network policy
 3. **Talk track:** "Four scanners, each addressing a real-world AI security concern."
 
 ### Step 12: Run AI Security Scanners
@@ -182,13 +213,13 @@
 
 ### Step 14: Show Detection Scanners
 
-1. **Run the scanners list query**
-2. **Highlight key scanners:**
-   - **Login Protection** — detects logins from known malicious IP addresses
-   - **Dormant User Login** — flags when inactive accounts suddenly wake up
-   - **High Auth Failures** — catches brute force attempts
-   - **Sensitive Parameter Protection** — alerts when data movement safeguards are disabled
-3. **Talk track:** "These aren't just configuration checks — they're active threat detections. Login from a malicious IP? Flagged. Dormant account suddenly active? Flagged. Someone disabling data movement safeguards? Flagged. This is the shift from violations to detections."
+1. **Run the scanners list query** — 18 scanners will appear
+2. **Group them into categories for the audience:**
+   - **Identity & Auth:** Login Protection (malicious IPs), Dormant User Login, High Auth Failures (brute force), MFA Readiness, Service User Passwordless Readiness, Password Sign-In Without MFA
+   - **Privilege Monitoring:** MANAGE GRANTS Privilege Monitoring, Users with new Admin Privilege Grants
+   - **Anomaly Detection:** Unusual application sessions, long-running queries, high job failure rates
+   - **Data & Config Protection:** Sensitive Parameter Protection, Share Exposure, SCIM Token Creation, Security Integration, Network Policy, Auth Policy, Session/Password Policy changes
+3. **Talk track:** "18 scanners across four categories — identity, privilege, anomaly detection, and data protection. These aren't just configuration checks — they're active threat detections watching what's actually happening in your account. This is the shift from violations to detections."
 
 ### Step 15: Run and Show Full Posture
 
