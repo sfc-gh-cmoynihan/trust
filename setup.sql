@@ -1,27 +1,33 @@
 -- ============================================================================
--- DEMO VIOLATIONS SETUP
--- SWT London 2026: Trust Center — Populate All Tabs
+-- DEMO SETUP — Run BEFORE going on stage (at least 2 hours before)
+-- SWT London 2026: Innovate at Scale — Powering a Secure and Resilient AI Estate
 -- ============================================================================
--- Creates deliberate security violations so every Trust Center tab has data:
---   Overview, Violations, Detections, Data Security, AI Security, Manage Scanners
+-- This script:
+--   1. Creates demo users, roles, tasks, procs to trigger violations
+--   2. Disables AI Guardrails so the scanner flags it
+--   3. Creates classified tables + agents over them for AI Security detections
+--   4. Triggers Threat Intelligence event-driven detections
+--   5. Sets up Data Security classification profile
+--   6. Enables all scanner packages and runs scanners
+--   7. Invokes agents to generate access events (need ~2 hour propagation)
+--
 -- All objects use DEMO_ prefix for easy identification and cleanup.
+-- Run teardown.sql after the demo to reset everything.
 -- ============================================================================
 
 USE ROLE ACCOUNTADMIN;
 
 -- ============================================================================
--- SECTION 1: INSECURE USERS
+-- 1. INSECURE USERS
 -- Triggers: CIS 1.4 (Critical), CIS 1.10-1.12, CIS 1.8,
 --           TI MFA Readiness (Critical), SE Strong Auth
 -- ============================================================================
 
--- No MFA user — password only
 CREATE USER IF NOT EXISTS DEMO_NO_MFA_USER
   TYPE = PERSON
   PASSWORD = 'Demo!Pass2026x'
   MUST_CHANGE_PASSWORD = FALSE;
 
--- Admin user with no email and ACCOUNTADMIN as default role
 CREATE USER IF NOT EXISTS DEMO_BAD_ADMIN
   TYPE = PERSON
   PASSWORD = 'Admin!Pass2026x'
@@ -29,24 +35,19 @@ CREATE USER IF NOT EXISTS DEMO_BAD_ADMIN
   DEFAULT_ROLE = ACCOUNTADMIN;
 GRANT ROLE ACCOUNTADMIN TO USER DEMO_BAD_ADMIN;
 
--- Dormant user — disabled, never logged in
 CREATE USER IF NOT EXISTS DEMO_DORMANT_USER
   TYPE = PERSON
   PASSWORD = 'Dormant!2026x'
   MUST_CHANGE_PASSWORD = FALSE
   DISABLED = TRUE;
 
--- Over-privileged custom role with ACCOUNTADMIN grant (CIS 1.13)
 CREATE ROLE IF NOT EXISTS DEMO_OVERPRIVILEGED_ROLE;
 GRANT ROLE ACCOUNTADMIN TO ROLE DEMO_OVERPRIVILEGED_ROLE;
-
--- Grant MANAGE GRANTS to trigger TI MANAGE_GRANTS_PRIVILEGE_MONITORING detection
 GRANT MANAGE GRANTS ON ACCOUNT TO ROLE DEMO_OVERPRIVILEGED_ROLE;
 
 -- ============================================================================
--- SECTION 2: ADMIN-PRIVILEGED OBJECTS
--- Triggers: CIS 1.14 (tasks owned by admin), CIS 1.15 (tasks run as admin),
---           CIS 1.16 (procs owned by admin), CIS 1.17 (procs run as admin)
+-- 2. ADMIN-PRIVILEGED OBJECTS
+-- Triggers: CIS 1.14/1.15 (tasks), CIS 1.16/1.17 (procs)
 -- ============================================================================
 
 CREATE OR REPLACE TASK DEMO_DB.PUBLIC.DEMO_ADMIN_TASK
@@ -64,29 +65,25 @@ BEGIN
 END;
 
 -- ============================================================================
--- SECTION 3: DISABLE AI GUARDRAILS
+-- 3. DISABLE AI GUARDRAILS
 -- Triggers: AI_SECURITY_ADVANCED_PROMPT_INJECTION_GUARDRAIL (High)
--- Currently enabled — disabling so the scanner flags it as a violation.
--- Teardown script re-enables them.
 -- ============================================================================
 
 ALTER ACCOUNT UNSET AI_SETTINGS;
 
 -- ============================================================================
--- SECTION 4: CORTEX SEARCH SERVICE + AGENT OVER CLASSIFIED DATA
+-- 4. CORTEX SEARCH SERVICES + AGENTS OVER CLASSIFIED DATA
 -- Triggers: AI_SECURITY_CORTEX_SEARCH_SERVICE_PRIVILEGED_ROLES (High)
 --           AI_SECURITY_AGENT_SENSITIVE_DATA_ACCESS (High Detection)
 -- ============================================================================
 
--- Search service over HR data (contains PII: emails, names, ages)
--- Owned by ACCOUNTADMIN — triggers privileged roles scanner
+-- HR data agent (PII: emails, names, ages)
 CREATE OR REPLACE CORTEX SEARCH SERVICE DEMO_DB.PUBLIC.DEMO_HR_SEARCH
   ON EMAIL_ADDRESS
   WAREHOUSE = COMPUTE_WH
   TARGET_LAG = '1 day'
   AS (SELECT * FROM DEMO_DB.PUBLIC.HR_DATA);
 
--- Agent that queries the search service with classified PII data
 CREATE OR REPLACE AGENT DEMO_DB.PUBLIC.DEMO_INSECURE_AGENT
   COMMENT = 'Demo agent accessing classified HR data without guardrails'
   FROM SPECIFICATION
@@ -106,15 +103,7 @@ CREATE OR REPLACE AGENT DEMO_DB.PUBLIC.DEMO_INSECURE_AGENT
       max_results: "5"
   $$;
 
--- ============================================================================
--- SECTION 4B: ADDITIONAL AGENTS OVER CLASSIFIED DATA
--- Triggers: More AI_SECURITY_AGENT_SENSITIVE_DATA_ACCESS detections
---           More AI_SECURITY_CORTEX_SEARCH_SERVICE_PRIVILEGED_ROLES violations
--- NOTE: Access history has ~2 hour latency. Run agent invocations (Section 7B)
---       at least 2 hours before the demo for detections to appear.
--- ============================================================================
-
--- Customer financial data (SSN, credit card, income)
+-- Customer financial data (SSN, credit cards, income)
 CREATE OR REPLACE TABLE DEMO_DB.PUBLIC.CUSTOMER_FINANCIAL_DATA (
     CUSTOMER_ID INT,
     FULL_NAME VARCHAR,
@@ -135,6 +124,36 @@ SELECT
     ROUND(50000 + UNIFORM(0::FLOAT, 150000::FLOAT, RANDOM()), 2) AS ANNUAL_INCOME,
     600 + MOD(SEQ4() * 7, 200) AS CREDIT_SCORE
 FROM TABLE(GENERATOR(ROWCOUNT => 50));
+
+CALL ASSOCIATE_SEMANTIC_CATEGORY_TAGS(
+    'DEMO_DB.PUBLIC.CUSTOMER_FINANCIAL_DATA',
+    EXTRACT_SEMANTIC_CATEGORIES('DEMO_DB.PUBLIC.CUSTOMER_FINANCIAL_DATA')
+);
+
+CREATE OR REPLACE CORTEX SEARCH SERVICE DEMO_DB.PUBLIC.DEMO_FINANCIAL_SEARCH
+  ON FULL_NAME
+  WAREHOUSE = COMPUTE_WH
+  TARGET_LAG = '1 day'
+  AS (SELECT * FROM DEMO_DB.PUBLIC.CUSTOMER_FINANCIAL_DATA);
+
+CREATE OR REPLACE AGENT DEMO_DB.PUBLIC.DEMO_FINANCIAL_AGENT
+  COMMENT = 'Demo agent accessing classified financial data — SSN, credit cards'
+  FROM SPECIFICATION
+  $$
+  models:
+    orchestration: auto
+  instructions:
+    response: "Answer questions about customer financial records"
+  tools:
+    - tool_spec:
+        type: "cortex_search"
+        name: "FinancialSearch"
+        description: "Search customer financial records including names and income data"
+  tool_resources:
+    FinancialSearch:
+      search_service: "DEMO_DB.PUBLIC.DEMO_FINANCIAL_SEARCH"
+      max_results: "5"
+  $$;
 
 -- Patient medical records (PHI: names, DOB, diagnoses, medications)
 CREATE OR REPLACE TABLE DEMO_DB.PUBLIC.PATIENT_RECORDS (
@@ -160,22 +179,10 @@ SELECT
     CASE MOD(SEQ4(), 5) WHEN 0 THEN 'Lisinopril' WHEN 1 THEN 'Metformin' WHEN 2 THEN 'Albuterol' WHEN 3 THEN 'Sertraline' ELSE 'Sumatriptan' END AS MEDICATION
 FROM TABLE(GENERATOR(ROWCOUNT => 50));
 
--- Classify the new tables as sensitive
-CALL ASSOCIATE_SEMANTIC_CATEGORY_TAGS(
-    'DEMO_DB.PUBLIC.CUSTOMER_FINANCIAL_DATA',
-    EXTRACT_SEMANTIC_CATEGORIES('DEMO_DB.PUBLIC.CUSTOMER_FINANCIAL_DATA')
-);
 CALL ASSOCIATE_SEMANTIC_CATEGORY_TAGS(
     'DEMO_DB.PUBLIC.PATIENT_RECORDS',
     EXTRACT_SEMANTIC_CATEGORIES('DEMO_DB.PUBLIC.PATIENT_RECORDS')
 );
-
--- Search services over classified data (owned by ACCOUNTADMIN)
-CREATE OR REPLACE CORTEX SEARCH SERVICE DEMO_DB.PUBLIC.DEMO_FINANCIAL_SEARCH
-  ON FULL_NAME
-  WAREHOUSE = COMPUTE_WH
-  TARGET_LAG = '1 day'
-  AS (SELECT * FROM DEMO_DB.PUBLIC.CUSTOMER_FINANCIAL_DATA);
 
 CREATE OR REPLACE CORTEX SEARCH SERVICE DEMO_DB.PUBLIC.DEMO_PATIENT_SEARCH
   ON PATIENT_NAME
@@ -183,27 +190,6 @@ CREATE OR REPLACE CORTEX SEARCH SERVICE DEMO_DB.PUBLIC.DEMO_PATIENT_SEARCH
   TARGET_LAG = '1 day'
   AS (SELECT * FROM DEMO_DB.PUBLIC.PATIENT_RECORDS);
 
--- Agent accessing financial PII (SSN, credit cards)
-CREATE OR REPLACE AGENT DEMO_DB.PUBLIC.DEMO_FINANCIAL_AGENT
-  COMMENT = 'Demo agent accessing classified financial data — SSN, credit cards'
-  FROM SPECIFICATION
-  $$
-  models:
-    orchestration: auto
-  instructions:
-    response: "Answer questions about customer financial records"
-  tools:
-    - tool_spec:
-        type: "cortex_search"
-        name: "FinancialSearch"
-        description: "Search customer financial records including names and income data"
-  tool_resources:
-    FinancialSearch:
-      search_service: "DEMO_DB.PUBLIC.DEMO_FINANCIAL_SEARCH"
-      max_results: "5"
-  $$;
-
--- Agent accessing patient medical records (PHI)
 CREATE OR REPLACE AGENT DEMO_DB.PUBLIC.DEMO_PATIENT_AGENT
   COMMENT = 'Demo agent accessing classified patient medical records'
   FROM SPECIFICATION
@@ -224,48 +210,37 @@ CREATE OR REPLACE AGENT DEMO_DB.PUBLIC.DEMO_PATIENT_AGENT
   $$;
 
 -- ============================================================================
--- SECTION 4C: TRIGGER THREAT INTELLIGENCE EVENT-DRIVEN DETECTIONS
+-- 5. TRIGGER THREAT INTELLIGENCE EVENT-DRIVEN DETECTIONS
 -- Triggers: AUTHENTICATION_POLICY_CHANGES, SENSITIVE_POLICY_CHANGES,
 --           SENSITIVE_PARAMETER_PROTECTION
 -- ============================================================================
 
--- Weak auth policy — triggers TI AUTHENTICATION_POLICY_CHANGES
 CREATE OR REPLACE AUTHENTICATION POLICY DEMO_DB.PUBLIC.DEMO_WEAK_AUTH_POLICY
   COMMENT = 'Demo auth policy for detection trigger';
 
--- Weak password policy — triggers TI SENSITIVE_POLICY_CHANGES
 CREATE OR REPLACE PASSWORD POLICY DEMO_DB.PUBLIC.DEMO_WEAK_PASSWORD_POLICY
   PASSWORD_MIN_LENGTH = 8
   PASSWORD_MAX_AGE_DAYS = 999
   PASSWORD_HISTORY = 0
   COMMENT = 'Demo weak password policy for detection trigger';
 
--- Overly permissive session policy — triggers TI SENSITIVE_POLICY_CHANGES
 CREATE OR REPLACE SESSION POLICY DEMO_DB.PUBLIC.DEMO_LONG_SESSION_POLICY
   SESSION_IDLE_TIMEOUT_MINS = 240
   SESSION_UI_IDLE_TIMEOUT_MINS = 240
   COMMENT = 'Demo overly permissive session policy';
 
--- Alter sensitive parameter — triggers TI SENSITIVE_PARAMETER_PROTECTION
 ALTER ACCOUNT SET ENABLE_UNLOAD_PHYSICAL_TYPE_OPTIMIZATION = TRUE;
 
 -- ============================================================================
--- SECTION 5: DATA SECURITY — Classification Profile
+-- 6. DATA SECURITY — Classification Profile
 -- Populates: Data Security tab (Dashboard, Sensitive objects, Settings)
--- Also makes AI Security "Sensitive Data Accessed by Agent" scanner fire
 -- ============================================================================
--- The Data Security tab requires a CLASSIFICATION_PROFILE set on databases.
--- There is a ~1 hour delay before automatic classification begins.
--- We also run SYSTEM$CLASSIFY manually on key tables for immediate results.
 
--- Grant required role for profile creation
 GRANT DATABASE ROLE SNOWFLAKE.CLASSIFICATION_ADMIN TO ROLE ACCOUNTADMIN;
 
--- Create governance schema for the classification profile
 CREATE SCHEMA IF NOT EXISTS DEMO_DB.GOVERNANCE;
 GRANT CREATE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE ON SCHEMA DEMO_DB.GOVERNANCE TO ROLE ACCOUNTADMIN;
 
--- Create classification profile with auto-tagging enabled
 CREATE OR REPLACE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE
   DEMO_DB.GOVERNANCE.DEMO_CLASSIFICATION_PROFILE({
     'minimum_object_age_for_classification_days': 0,
@@ -274,15 +249,13 @@ CREATE OR REPLACE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE
     'classify_views': false
   });
 
--- Set the profile on both databases
 ALTER DATABASE DEMO_DB
   SET CLASSIFICATION_PROFILE = 'DEMO_DB.GOVERNANCE.DEMO_CLASSIFICATION_PROFILE';
 
 ALTER DATABASE RBAC_DEMO_DB
   SET CLASSIFICATION_PROFILE = 'DEMO_DB.GOVERNANCE.DEMO_CLASSIFICATION_PROFILE';
 
--- Remove any manually applied tags that would conflict with auto-classification
--- (SYSTEM$CLASSIFY fails if manual tags are present)
+-- Remove any manually applied tags that conflict with auto-classification
 ALTER TABLE DEMO_DB.PUBLIC.HR_DATA MODIFY COLUMN EMAIL_ADDRESS UNSET TAG SNOWFLAKE.CORE.SEMANTIC_CATEGORY;
 ALTER TABLE DEMO_DB.PUBLIC.HR_DATA MODIFY COLUMN EMAIL_ADDRESS UNSET TAG SNOWFLAKE.CORE.PRIVACY_CATEGORY;
 ALTER TABLE DEMO_DB.PUBLIC.HR_DATA MODIFY COLUMN FNAME UNSET TAG SNOWFLAKE.CORE.SEMANTIC_CATEGORY;
@@ -292,24 +265,16 @@ ALTER TABLE DEMO_DB.PUBLIC.HR_DATA MODIFY COLUMN LNAME UNSET TAG SNOWFLAKE.CORE.
 ALTER TABLE DEMO_DB.PUBLIC.HR_DATA MODIFY COLUMN AGE UNSET TAG SNOWFLAKE.CORE.SEMANTIC_CATEGORY;
 ALTER TABLE DEMO_DB.PUBLIC.HR_DATA MODIFY COLUMN AGE UNSET TAG SNOWFLAKE.CORE.PRIVACY_CATEGORY;
 
--- Manually classify key tables for immediate Data Security tab results
 CALL SYSTEM$CLASSIFY('DEMO_DB.PUBLIC.HR_DATA', 'DEMO_DB.GOVERNANCE.DEMO_CLASSIFICATION_PROFILE');
 CALL SYSTEM$CLASSIFY('RBAC_DEMO_DB.ANALYST_DATA.STOCK_ANALYST_DATA', 'DEMO_DB.GOVERNANCE.DEMO_CLASSIFICATION_PROFILE');
 CALL SYSTEM$CLASSIFY('DEMO_DB.PUBLIC.PERSONS', 'DEMO_DB.GOVERNANCE.DEMO_CLASSIFICATION_PROFILE');
 
 -- ============================================================================
--- SECTION 6: ENABLE ALL SCANNER PACKAGES
--- Populates: Manage Scanners tab — all 4 packages active
+-- 7. ENABLE ALL SCANNER PACKAGES AND RUN SCANNERS
 -- ============================================================================
 
--- AI Security and Threat Intelligence are currently disabled
 CALL snowflake.trust_center.set_configuration('ENABLED', 'TRUE', 'AI_SECURITY', false);
 CALL snowflake.trust_center.set_configuration('ENABLED', 'TRUE', 'THREAT_INTELLIGENCE', false);
-
--- ============================================================================
--- SECTION 7: RUN ALL SCANNERS
--- Populates: Overview, Violations, Detections, AI Security charts
--- ============================================================================
 
 CALL snowflake.trust_center.execute_scanner('CIS_BENCHMARKS');
 CALL snowflake.trust_center.execute_scanner('SECURITY_ESSENTIALS');
@@ -317,26 +282,23 @@ CALL snowflake.trust_center.execute_scanner('AI_SECURITY');
 CALL snowflake.trust_center.execute_scanner('THREAT_INTELLIGENCE');
 
 -- ============================================================================
--- SECTION 7B: INVOKE AGENTS TO TRIGGER AI SECURITY DETECTIONS
--- NOTE: Access history has ~2 hour latency. Run this section at least 2 hours
---       before the demo, then re-run Section 7 scanners before going on stage.
+-- 8. INVOKE AGENTS TO TRIGGER AI SECURITY DETECTIONS
+-- NOTE: Access history has ~2 hour latency. Run this script at least 2 hours
+--       before the demo. Re-run the scanners in Section 7 before going on stage.
 -- ============================================================================
 
--- Invoke HR agent — accesses classified PII (emails, names, age)
 SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
   'DEMO_DB.PUBLIC.DEMO_INSECURE_AGENT',
   '{"messages": [{"role": "user", "content": [{"type": "text", "text": "List all employee email addresses"}]}]}',
   TRUE
 );
 
--- Invoke financial agent — accesses classified financial data (SSN, credit cards)
 SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
   'DEMO_DB.PUBLIC.DEMO_FINANCIAL_AGENT',
   '{"messages": [{"role": "user", "content": [{"type": "text", "text": "What customers do you have records for?"}]}]}',
   TRUE
 );
 
--- Invoke patient agent — accesses classified medical records (PHI)
 SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
   'DEMO_DB.PUBLIC.DEMO_PATIENT_AGENT',
   '{"messages": [{"role": "user", "content": [{"type": "text", "text": "What patients are on Metformin?"}]}]}',
@@ -344,36 +306,36 @@ SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
 );
 
 -- ============================================================================
--- SECTION 8: VERIFY
+-- 9. DISABLE AI SECURITY + THREAT INTELLIGENCE FOR LIVE ENABLE MOMENT
+-- The demo script enables these live on stage.
 -- ============================================================================
 
--- Check all packages are enabled
+CALL snowflake.trust_center.set_configuration('ENABLED', 'FALSE', 'AI_SECURITY', false);
+CALL snowflake.trust_center.set_configuration('ENABLED', 'FALSE', 'THREAT_INTELLIGENCE', false);
+
+-- ============================================================================
+-- 10. VERIFY
+-- ============================================================================
+
 SELECT ID, NAME, STATE FROM snowflake.trust_center.scanner_packages ORDER BY NAME;
+-- EXPECTED: AI_SECURITY=FALSE, CIS_BENCHMARKS=TRUE, SECURITY_ESSENTIALS=TRUE, THREAT_INTELLIGENCE=FALSE
 
--- Check findings across all packages
-SELECT
-    SCANNER_PACKAGE_NAME,
-    SEVERITY,
-    SCANNER_TYPE,
-    COUNT(*) AS FINDING_COUNT,
-    SUM(TOTAL_AT_RISK_COUNT) AS TOTAL_AT_RISK
+SELECT SEVERITY, COUNT(*) AS FINDING_COUNT, SUM(TOTAL_AT_RISK_COUNT) AS TOTAL_AT_RISK
 FROM snowflake.trust_center.findings
-WHERE UPPER(STATE) = 'OPEN'
-  AND TOTAL_AT_RISK_COUNT > 0
-GROUP BY SCANNER_PACKAGE_NAME, SEVERITY, SCANNER_TYPE
-ORDER BY SCANNER_PACKAGE_NAME,
-    CASE SEVERITY
-        WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
-        WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4
-    END;
+WHERE UPPER(STATE) = 'OPEN' AND TOTAL_AT_RISK_COUNT > 0
+GROUP BY SEVERITY
+ORDER BY CASE SEVERITY
+    WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+    WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4
+END;
 
 -- ============================================================================
--- SETUP COMPLETE
--- All Trust Center tabs should now be populated:
+-- SETUP COMPLETE — Ready for demo
+-- All Trust Center tabs should be populated:
 --   Overview:        Summary from all 4 packages
 --   Violations:      CIS compliance + AI Security violations
 --   Detections:      Client security + agent sensitive data + TI events
---   Data Security:   Classification profile + classified tables (HR_DATA, STOCK_ANALYST_DATA, PERSONS)
+--   Data Security:   Classification profile + classified tables
 --   AI Security:     36+ agents, 4/4 scanners, guardrails flagged
 --   Manage Scanners: All 4 packages enabled
 -- ============================================================================
