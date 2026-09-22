@@ -29,6 +29,20 @@
    - AI Security and Threat Intelligence are listed but **not enabled** — say: "We'll come back to these"
 3. **Talk track:** "This is Trust Center — Snowflake's single pane of glass for security, compliance, and governance. It scans your account against industry benchmarks and surfaces exactly what needs attention."
 
+### Step 1.5: Security Posture and Coverage
+
+1. **Switch to SQL worksheet**, run the scanner coverage query:
+   ```sql
+   SELECT sp.NAME AS PACKAGE, COUNT(*) AS TOTAL_SCANNERS,
+          SUM(CASE WHEN UPPER(s.STATE) = 'TRUE' THEN 1 ELSE 0 END) AS ENABLED,
+          ROUND(SUM(CASE WHEN UPPER(s.STATE) = 'TRUE' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 0) AS COVERAGE_PCT
+   FROM snowflake.trust_center.scanners s
+   JOIN snowflake.trust_center.scanner_packages sp ON s.SCANNER_PACKAGE_ID = sp.ID
+   GROUP BY sp.NAME ORDER BY sp.NAME;
+   ```
+2. **Point out:** 100% coverage across all 4 packages — 72 scanners active
+3. **Talk track:** "This is your security posture baseline. Coverage tells us how much of the security surface we're actually monitoring. 100% means no blind spots — every scanner in every package is active and watching. Now let's look at what they're finding."
+
 ### Step 2: Drill into CIS 3.1 (Critical)
 
 1. **Click** on the CIS Benchmarks package
@@ -176,14 +190,25 @@
    - **Sensitive Parameter Protection** — alerts when data movement safeguards are disabled
 3. **Talk track:** "These aren't just configuration checks — they're active threat detections. Login from a malicious IP? Flagged. Dormant account suddenly active? Flagged. Someone disabling data movement safeguards? Flagged. This is the shift from violations to detections."
 
-### Step 15: Run and Show Full Picture
+### Step 15: Run and Show Full Posture
 
 1. **Run:**
    ```sql
    CALL snowflake.trust_center.execute_scanner('THREAT_INTELLIGENCE');
    ```
-2. **Run the closing summary query** — findings across all four packages
-3. **Talk track:** "CIS Benchmarks for compliance. Security Essentials for hygiene. AI Security for agent guardrails. Threat Intelligence for real-time detection. All four packages. Every at-risk entity. One place. Proactive, enterprise-grade security for data and AI — built in, not bolted on."
+2. **Run the closing posture summary query** — coverage + findings across all four packages:
+   ```sql
+   SELECT sp.NAME AS PACKAGE, sp.STATE AS ENABLED,
+          COUNT(DISTINCT f.SCANNER_NAME) AS SCANNERS_WITH_FINDINGS,
+          SUM(f.TOTAL_AT_RISK_COUNT) AS TOTAL_AT_RISK
+   FROM snowflake.trust_center.scanner_packages sp
+   LEFT JOIN snowflake.trust_center.findings f
+       ON sp.ID = f.SCANNER_PACKAGE_ID
+       AND UPPER(f.STATE) = 'OPEN' AND f.TOTAL_AT_RISK_COUNT > 0
+       AND f.END_TIMESTAMP > DATEADD('day', -7, CURRENT_TIMESTAMP())
+   GROUP BY sp.NAME, sp.STATE ORDER BY sp.NAME;
+   ```
+3. **Talk track:** "Four packages. All enabled. Full coverage. And now we can see exactly where the risk is concentrated — how many scanners are firing, how many entities are at risk, across every domain. This is your security posture at a glance. Proactive, enterprise-grade security for data and AI — built in, not bolted on."
 
 ---
 

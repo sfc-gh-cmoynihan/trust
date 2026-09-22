@@ -40,6 +40,27 @@ END;
 -- TALK TRACK: "We have critical findings that need attention. Let's drill in."
 
 -- ============================================================================
+-- SECURITY POSTURE: Scanner coverage
+-- ============================================================================
+-- TALK TRACK: "Before we drill in, let me show you our security posture.
+-- Coverage tells us how much of the security surface we're actually monitoring."
+
+SELECT
+    sp.NAME                          AS PACKAGE,
+    COUNT(*)                         AS TOTAL_SCANNERS,
+    SUM(CASE WHEN UPPER(s.STATE) = 'TRUE' THEN 1 ELSE 0 END) AS ENABLED,
+    ROUND(SUM(CASE WHEN UPPER(s.STATE) = 'TRUE' THEN 1 ELSE 0 END)
+          * 100.0 / COUNT(*), 0)     AS COVERAGE_PCT
+FROM snowflake.trust_center.scanners s
+JOIN snowflake.trust_center.scanner_packages sp ON s.SCANNER_PACKAGE_ID = sp.ID
+GROUP BY sp.NAME
+ORDER BY sp.NAME;
+
+-- TALK TRACK: "100% coverage across all four packages — 72 scanners active.
+-- That's our security posture baseline. Full coverage means no blind spots.
+-- Now let's look at what those scanners are finding."
+
+-- ============================================================================
 -- Drill into: CIS 3.1 — No account-level network policy (CRITICAL)
 -- ============================================================================
 -- TALK TRACK: "CIS 3.1 — we don't have an account-level network policy.
@@ -307,13 +328,35 @@ ORDER BY SCANNER_PACKAGE_NAME,
         WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4
     END;
 
--- TALK TRACK: "CIS Benchmarks for compliance. Security Essentials for
--- foundational hygiene. AI Security for agent guardrails. Threat Intelligence
--- for real-time detection.
+-- ============================================================================
+-- SECURITY POSTURE SUMMARY
+-- ============================================================================
+-- TALK TRACK: "Let me pull up the overall security posture."
+
+SELECT
+    sp.NAME                          AS PACKAGE,
+    sp.STATE                         AS ENABLED,
+    COUNT(DISTINCT f.SCANNER_NAME)   AS SCANNERS_WITH_FINDINGS,
+    SUM(f.TOTAL_AT_RISK_COUNT)       AS TOTAL_AT_RISK
+FROM snowflake.trust_center.scanner_packages sp
+LEFT JOIN snowflake.trust_center.findings f
+    ON sp.ID = f.SCANNER_PACKAGE_ID
+    AND UPPER(f.STATE) = 'OPEN'
+    AND f.TOTAL_AT_RISK_COUNT > 0
+    AND f.END_TIMESTAMP > DATEADD('day', -7, CURRENT_TIMESTAMP())
+GROUP BY sp.NAME, sp.STATE
+ORDER BY sp.NAME;
+
+-- TALK TRACK: "Four packages. All enabled. Full coverage. And now we can see
+-- exactly where the risk is concentrated — how many scanners are firing,
+-- how many entities are at risk, across every domain.
 --
--- All four packages. All severities. Every at-risk entity — visible in one
--- place. This is proactive, enterprise-grade security for data and AI.
--- Built in, not bolted on."
+-- This is your security posture at a glance. CIS Benchmarks for compliance.
+-- Security Essentials for foundational hygiene. AI Security for agent
+-- guardrails. Threat Intelligence for real-time detection.
+--
+-- Every at-risk entity — visible in one place. This is proactive,
+-- enterprise-grade security for data and AI. Built in, not bolted on."
 --
 -- >>> SWITCH BACK TO SLIDES — Slide 7: THANK YOU <<<
 
